@@ -1,6 +1,9 @@
 name: Generate and Obfuscate Worker Script
 
 on:
+  push:
+    branches:
+      - logan
   workflow_dispatch:
 #  schedule:
 #    - cron: '0 * * * *'
