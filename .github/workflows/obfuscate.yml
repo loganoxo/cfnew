@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - logan
+    paths:
+        - '明文源吗'
   workflow_dispatch:
 #  schedule:
 #    - cron: '0 * * * *'
