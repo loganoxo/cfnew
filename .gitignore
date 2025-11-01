@@ -5,6 +5,7 @@ test
 __pycache__
 *.iml
 snip_mi
+snip_my
 node_modules/
 /target
 /dist
