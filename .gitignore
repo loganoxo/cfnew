@@ -6,7 +6,6 @@ __pycache__
 *.iml
 snip_mi
 snip_my
-a
 node_modules/
 /target
 /dist
