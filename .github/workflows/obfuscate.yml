@@ -93,6 +93,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit, the obfuscated file is already up-to-date."
           else
-            git commit -m "每一小时混淆一次自动能用就别更新了"
+            git commit -m "部署用这个"
             git push
           fi
