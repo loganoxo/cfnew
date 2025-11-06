@@ -635,7 +635,7 @@ export default {
 									status: homepageResponse.status,
 									headers: {
 										'Content-Type': contentType,
-										'Cache-Control': 'public, max-age=3600, immutable',
+										'Cache-Control': 'public, max-age=1209600, immutable',
 									}
 								});
 							}
