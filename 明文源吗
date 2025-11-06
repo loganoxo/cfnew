@@ -634,8 +634,8 @@ export default {
 								return new Response(content, {
 									status: homepageResponse.status,
 									headers: {
-										'Content-Type': contentType,
-										'Cache-Control': 'no-cache, no-store, must-revalidate',
+										'Content-Type': contentType
+										//'Cache-Control': 'no-cache, no-store, must-revalidate',
 									}
 								});
 							}
