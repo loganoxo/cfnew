@@ -610,20 +610,65 @@ export default {
 				}
 				
 				if (url.pathname === '/') {
-                        // 检查URL参数中的语言设置
-                        const langParam = url.searchParams.get('lang');
-                        let isFarsi = false;
-                        
-                        if (langParam === 'fa' || langParam === 'fa-IR') {
-                            isFarsi = true;
-                        } else if (langParam === 'zh' || langParam === 'zh-CN') {
-                            isFarsi = false;
-                        } else {
-                            // 如果没有URL参数，使用浏览器语言检测
-                            const acceptLanguage = request.headers.get('Accept-Language') || '';
-                            const browserLang = acceptLanguage.split(',')[0].split('-')[0].toLowerCase();
-                            isFarsi = browserLang === 'fa' || acceptLanguage.includes('fa-IR') || acceptLanguage.includes('fa');
-                        }
+					// 检查是否有自定义首页URL配置
+					const customHomepage = getConfigValue('homepage', env.homepage || env.HOMEPAGE);
+					if (customHomepage && customHomepage.trim()) {
+						try {
+							// 从自定义URL获取内容
+							const homepageResponse = await fetch(customHomepage.trim(), {
+								method: 'GET',
+								headers: {
+									'User-Agent': request.headers.get('User-Agent') || 'Mozilla/5.0',
+									'Accept': request.headers.get('Accept') || '*/*',
+									'Accept-Language': request.headers.get('Accept-Language') || 'en-US,en;q=0.9',
+								},
+								redirect: 'follow'
+							});
+							
+							if (homepageResponse.ok) {
+								// 获取响应内容
+								const contentType = homepageResponse.headers.get('Content-Type') || 'text/html; charset=utf-8';
+								const content = await homepageResponse.text();
+								
+								// 返回自定义首页内容
+								return new Response(content, {
+									status: homepageResponse.status,
+									headers: {
+										'Content-Type': contentType,
+										'Cache-Control': 'no-cache, no-store, must-revalidate',
+									}
+								});
+							}
+						} catch (error) {
+							// 如果获取失败，继续使用默认终端页面
+							console.error('获取自定义首页失败:', error);
+						}
+					}
+					// 优先检查Cookie中的语言设置
+					const cookieHeader = request.headers.get('Cookie') || '';
+					let langFromCookie = null;
+					if (cookieHeader) {
+						const cookies = cookieHeader.split(';').map(c => c.trim());
+						for (const cookie of cookies) {
+							if (cookie.startsWith('preferredLanguage=')) {
+								langFromCookie = cookie.split('=')[1];
+								break;
+							}
+						}
+					}
+					
+					let isFarsi = false;
+					
+					if (langFromCookie === 'fa' || langFromCookie === 'fa-IR') {
+						isFarsi = true;
+					} else if (langFromCookie === 'zh' || langFromCookie === 'zh-CN') {
+						isFarsi = false;
+					} else {
+						// 如果没有Cookie，使用浏览器语言检测
+						const acceptLanguage = request.headers.get('Accept-Language') || '';
+						const browserLang = acceptLanguage.split(',')[0].split('-')[0].toLowerCase();
+						isFarsi = browserLang === 'fa' || acceptLanguage.includes('fa-IR') || acceptLanguage.includes('fa');
+					}
                         
                         const lang = isFarsi ? 'fa' : 'zh-CN';
                         const langAttr = isFarsi ? 'fa-IR' : 'zh-CN';
@@ -977,23 +1022,46 @@ export default {
             
             function changeLanguage(lang) {
                 localStorage.setItem('preferredLanguage', lang);
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('lang', lang);
-                window.location.href = currentUrl.toString();
+                // 设置Cookie（有效期1年）
+                const expiryDate = new Date();
+                expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                document.cookie = 'preferredLanguage=' + lang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
+                // 刷新页面，不使用URL参数
+                window.location.reload();
             }
             
-            // 页面加载时检查 localStorage 中的语言设置
+            // 页面加载时检查 localStorage 和 Cookie，并清理URL参数
             window.addEventListener('DOMContentLoaded', function() {
-                const savedLang = localStorage.getItem('preferredLanguage');
+                function getCookie(name) {
+                    const value = '; ' + document.cookie;
+                    const parts = value.split('; ' + name + '=');
+                    if (parts.length === 2) return parts.pop().split(';').shift();
+                    return null;
+                }
+                
+                const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlLang = urlParams.get('lang');
                 
-                // 如果URL中没有语言参数，但localStorage中有，则应用
-                if (!urlLang && savedLang) {
+                // 如果URL中有语言参数，移除它并设置Cookie
+                if (urlLang) {
                     const currentUrl = new URL(window.location.href);
-                    currentUrl.searchParams.set('lang', savedLang);
-                    window.location.href = currentUrl.toString();
-                    return;
+                    currentUrl.searchParams.delete('lang');
+                    const newUrl = currentUrl.toString();
+                    
+                    // 设置Cookie
+                    const expiryDate = new Date();
+                    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                    document.cookie = 'preferredLanguage=' + urlLang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
+                    localStorage.setItem('preferredLanguage', urlLang);
+                    
+                    // 使用history API移除URL参数，不刷新页面
+                    window.history.replaceState({}, '', newUrl);
+                } else if (savedLang) {
+                    // 如果localStorage中有但Cookie中没有，同步到Cookie
+                    const expiryDate = new Date();
+                    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                    document.cookie = 'preferredLanguage=' + savedLang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
                 }
             });
         
@@ -1700,22 +1768,33 @@ function parseSocksConfig(address) {
 
 async function handleSubscriptionPage(request, user = null) {
 	if (!user) user = at;
-        
-        const url = new URL(request.url);
-        // 检查URL参数中的语言设置
-        const langParam = url.searchParams.get('lang');
-        let isFarsi = false;
-        
-        if (langParam === 'fa' || langParam === 'fa-IR') {
-            isFarsi = true;
-        } else if (langParam === 'zh' || langParam === 'zh-CN') {
-            isFarsi = false;
-        } else {
-            // 如果没有URL参数，使用浏览器语言检测
-            const acceptLanguage = request.headers.get('Accept-Language') || '';
-            const browserLang = acceptLanguage.split(',')[0].split('-')[0].toLowerCase();
-            isFarsi = browserLang === 'fa' || acceptLanguage.includes('fa-IR') || acceptLanguage.includes('fa');
-        }
+	
+	const url = new URL(request.url);
+	// 优先检查Cookie中的语言设置
+	const cookieHeader = request.headers.get('Cookie') || '';
+	let langFromCookie = null;
+	if (cookieHeader) {
+		const cookies = cookieHeader.split(';').map(c => c.trim());
+		for (const cookie of cookies) {
+			if (cookie.startsWith('preferredLanguage=')) {
+				langFromCookie = cookie.split('=')[1];
+				break;
+			}
+		}
+	}
+	
+	let isFarsi = false;
+	
+	if (langFromCookie === 'fa' || langFromCookie === 'fa-IR') {
+		isFarsi = true;
+	} else if (langFromCookie === 'zh' || langFromCookie === 'zh-CN') {
+		isFarsi = false;
+	} else {
+		// 如果没有Cookie，使用浏览器语言检测
+		const acceptLanguage = request.headers.get('Accept-Language') || '';
+		const browserLang = acceptLanguage.split(',')[0].split('-')[0].toLowerCase();
+		isFarsi = browserLang === 'fa' || acceptLanguage.includes('fa-IR') || acceptLanguage.includes('fa');
+	}
         
         const langAttr = isFarsi ? 'fa-IR' : 'zh-CN';
         
@@ -1750,6 +1829,9 @@ async function handleSubscriptionPage(request, user = null) {
                 preferredIPs: '优选IP列表 (yx):',
                 preferredIPsURL: '优选IP来源URL (yxURL):',
                 socks5Config: 'SOCKS5配置 (s):',
+                customHomepage: '自定义首页URL (homepage):',
+                customHomepagePlaceholder: '例如: https://example.com',
+                customHomepageHint: '设置自定义URL作为首页伪装。访问根路径 / 时将显示该URL的内容。留空则显示默认终端页面。',
                 saveConfig: '保存配置',
                 advancedControl: '高级控制',
                 subscriptionConverter: '订阅转换地址:',
@@ -1796,7 +1878,7 @@ async function handleSubscriptionPage(request, user = null) {
                     KR: '🇰🇷 韩国', DE: '🇩🇪 德国', SE: '🇸🇪 瑞典', NL: '🇳🇱 荷兰',
                     FI: '🇫🇮 芬兰', GB: '🇬🇧 英国'
                 },
-                terminal: '终端 v2.1',
+                terminal: '终端 v2.2',
                 githubProject: 'GitHub 项目',
                 autoDetectClient: '自动识别',
 			selectionLogicText: '同地区 → 邻近地区 → 其他地区',
@@ -1854,6 +1936,9 @@ async function handleSubscriptionPage(request, user = null) {
                 preferredIPs: 'لیست IP ترجیحی (yx):',
                 preferredIPsURL: 'URL منبع IP ترجیحی (yxURL):',
                 socks5Config: 'تنظیمات SOCKS5 (s):',
+                customHomepage: 'URL صفحه اصلی سفارشی (homepage):',
+                customHomepagePlaceholder: 'مثال: https://example.com',
+                customHomepageHint: 'تنظیم URL سفارشی به عنوان استتار صفحه اصلی. هنگام دسترسی به مسیر اصلی / محتوای این URL نمایش داده می‌شود. اگر خالی بگذارید صفحه ترمینال پیش‌فرض نمایش داده می‌شود.',
                 saveConfig: 'ذخیره تنظیمات',
                 advancedControl: 'کنترل پیشرفته',
                 subscriptionConverter: 'آدرس تبدیل اشتراک:',
@@ -1900,7 +1985,7 @@ async function handleSubscriptionPage(request, user = null) {
                     KR: '🇰🇷 کره جنوبی', DE: '🇩🇪 آلمان', SE: '🇸🇪 سوئد', NL: '🇳🇱 هلند',
                     FI: '🇫🇮 فنلاند', GB: '🇬🇧 بریتانیا'
                 },
-                terminal: 'ترمینال v2.1',
+                terminal: 'ترمینال v2.2',
                 githubProject: 'پروژه GitHub',
                 autoDetectClient: 'تشخیص خودکار',
 			selectionLogicText: 'هم‌منطقه → منطقه مجاور → سایر مناطق',
@@ -2148,7 +2233,7 @@ async function handleSubscriptionPage(request, user = null) {
     <div class="matrix-rain"></div>
     <div class="matrix-code-rain" id="matrixCodeRain"></div>
         <div class="matrix-text">${t.terminal}</div>
-        <div style="position: fixed; top: 20px; ${isFarsi ? 'left' : 'right'}: 20px; z-index: 1000;">
+        <div style="position: fixed; top: 20px; left: 20px; z-index: 1000;">
             <select id="languageSelector" style="background: rgba(0, 20, 0, 0.9); border: 2px solid #00ff00; color: #00ff00; padding: 8px 12px; font-family: 'Courier New', monospace; font-size: 14px; cursor: pointer; text-shadow: 0 0 5px #00ff00; box-shadow: 0 0 15px rgba(0, 255, 0, 0.4);" onchange="changeLanguage(this.value)">
                 <option value="zh" ${!isFarsi ? 'selected' : ''}>🇨🇳 中文</option>
                 <option value="fa" ${isFarsi ? 'selected' : ''}>🇮🇷 فارسی</option>
@@ -2244,6 +2329,11 @@ async function handleSubscriptionPage(request, user = null) {
                                 <small style="color: #00aa00; font-size: 0.85rem; display: block; margin-top: 10px;">${t.protocolHint}</small>
                                 <button type="button" id="saveProtocolBtn" style="margin-top: 15px; background: rgba(0, 255, 0, 0.15); border: 2px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; text-shadow: 0 0 8px #00ff00; transition: all 0.4s ease; width: 100%;">${t.saveProtocol}</button>
                         </div>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; color: #00ff00; font-weight: bold; text-shadow: 0 0 3px #00ff00;">${t.customHomepage}</label>
+                            <input type="text" id="customHomepage" placeholder="${t.customHomepagePlaceholder}" style="width: 100%; padding: 12px; background: rgba(0, 0, 0, 0.8); border: 2px solid #00ff00; color: #00ff00; font-family: 'Courier New', monospace; font-size: 14px;">
+                            <small style="color: #00aa00; font-size: 0.85rem;">${t.customHomepageHint}</small>
                     </div>
                     <div style="margin-bottom: 15px;">
                             <label style="display: block; margin-bottom: 8px; color: #00ff00; font-weight: bold; text-shadow: 0 0 3px #00ff00;">${t.customPath}</label>
@@ -2383,47 +2473,62 @@ async function handleSubscriptionPage(request, user = null) {
                 }
             };
             
+            function getCookie(name) {
+                const value = '; ' + document.cookie;
+                const parts = value.split('; ' + name + '=');
+                if (parts.length === 2) return parts.pop().split(';').shift();
+                return null;
+            }
+            
             const browserLang = navigator.language || navigator.userLanguage || '';
-            const urlParams = new URLSearchParams(window.location.search);
-            const urlLang = urlParams.get('lang');
+            const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
             let isFarsi = false;
             
-            if (urlLang === 'fa' || urlLang === 'fa-IR') {
+            if (savedLang === 'fa' || savedLang === 'fa-IR') {
                 isFarsi = true;
-            } else if (urlLang === 'zh' || urlLang === 'zh-CN') {
+            } else if (savedLang === 'zh' || savedLang === 'zh-CN') {
                 isFarsi = false;
             } else {
-                const savedLang = localStorage.getItem('preferredLanguage');
-                if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                    isFarsi = true;
-                } else if (savedLang === 'zh' || savedLang === 'zh-CN') {
-                    isFarsi = false;
-                } else {
-                    isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                }
+                isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
             }
             
             const t = translations[isFarsi ? 'fa' : 'zh'];
             
             function changeLanguage(lang) {
                 localStorage.setItem('preferredLanguage', lang);
-                const currentUrl = new URL(window.location.href);
-                currentUrl.searchParams.set('lang', lang);
-                window.location.href = currentUrl.toString();
+                // 设置Cookie（有效期1年）
+                const expiryDate = new Date();
+                expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                document.cookie = 'preferredLanguage=' + lang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
+                // 刷新页面，不使用URL参数
+                window.location.reload();
             }
             
-            // 页面加载时检查 localStorage 中的语言设置
+            // 页面加载时检查 localStorage 和 Cookie，并清理URL参数
             window.addEventListener('DOMContentLoaded', function() {
-                const savedLang = localStorage.getItem('preferredLanguage');
+                const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                 const urlParams = new URLSearchParams(window.location.search);
                 const urlLang = urlParams.get('lang');
                 
-                // 如果URL中没有语言参数，但localStorage中有，则应用
-                if (!urlLang && savedLang) {
+                // 如果URL中有语言参数，移除它并设置Cookie
+                if (urlLang) {
                     const currentUrl = new URL(window.location.href);
-                    currentUrl.searchParams.set('lang', savedLang);
-                    window.location.href = currentUrl.toString();
-                    return;
+                    currentUrl.searchParams.delete('lang');
+                    const newUrl = currentUrl.toString();
+                    
+                    // 设置Cookie
+                    const expiryDate = new Date();
+                    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                    document.cookie = 'preferredLanguage=' + urlLang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
+                    localStorage.setItem('preferredLanguage', urlLang);
+                    
+                    // 使用history API移除URL参数，不刷新页面
+                    window.history.replaceState({}, '', newUrl);
+                } else if (savedLang) {
+                    // 如果localStorage中有但Cookie中没有，同步到Cookie
+                    const expiryDate = new Date();
+                    expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+                    document.cookie = 'preferredLanguage=' + savedLang + '; path=/; expires=' + expiryDate.toUTCString() + '; SameSite=Lax';
                 }
             });
         
@@ -2614,25 +2719,24 @@ async function handleSubscriptionPage(request, user = null) {
                 const currentIP = document.getElementById('currentIP');
                 const regionMatch = document.getElementById('regionMatch');
                 
-                    // 获取当前语言设置
+                    // 获取当前语言设置（优先从Cookie/localStorage读取）
+                    function getCookie(name) {
+                        const value = '; ' + document.cookie;
+                        const parts = value.split('; ' + name + '=');
+                        if (parts.length === 2) return parts.pop().split(';').shift();
+                        return null;
+                    }
+                    
                     const browserLang = navigator.language || navigator.userLanguage || '';
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const urlLang = urlParams.get('lang');
+                    const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                     let isFarsi = false;
                     
-                    if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
                         isFarsi = true;
-                    } else if (urlLang === 'zh' || urlLang === 'zh-CN') {
+                    } else if (savedLang === 'zh' || savedLang === 'zh-CN') {
                         isFarsi = false;
                     } else {
-                        const savedLang = localStorage.getItem('preferredLanguage');
-                        if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                            isFarsi = true;
-                        } else if (savedLang === 'zh' || savedLang === 'zh-CN') {
-                            isFarsi = false;
-                        } else {
-                            isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                        }
+                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                     }
                     
                     const translations = {
@@ -2752,20 +2856,21 @@ async function handleSubscriptionPage(request, user = null) {
                 }
                 
             } catch (error) {
+                    function getCookie(name) {
+                        const value = '; ' + document.cookie;
+                        const parts = value.split('; ' + name + '=');
+                        if (parts.length === 2) return parts.pop().split(';').shift();
+                        return null;
+                    }
+                    
                     const browserLang = navigator.language || navigator.userLanguage || '';
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const urlLang = urlParams.get('lang');
+                    const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                     let isFarsi = false;
                     
-                    if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
                         isFarsi = true;
                     } else {
-                        const savedLang = localStorage.getItem('preferredLanguage');
-                        if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                            isFarsi = true;
-                        } else {
-                            isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                        }
+                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                     }
                     
                     const translations = {
@@ -2797,22 +2902,23 @@ async function handleSubscriptionPage(request, user = null) {
             }
         }
         
-        async function testAPI() {
-            try {
+            async function testAPI() {
+                try {
+                    function getCookie(name) {
+                        const value = '; ' + document.cookie;
+                        const parts = value.split('; ' + name + '=');
+                        if (parts.length === 2) return parts.pop().split(';').shift();
+                        return null;
+                    }
+                    
                     const browserLang = navigator.language || navigator.userLanguage || '';
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const urlLang = urlParams.get('lang');
+                    const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                     let isFarsi = false;
                     
-                    if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
                         isFarsi = true;
                     } else {
-                        const savedLang = localStorage.getItem('preferredLanguage');
-                        if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                            isFarsi = true;
-                        } else {
-                            isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                        }
+                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                     }
                     
                     const translations = {
@@ -2843,20 +2949,21 @@ async function handleSubscriptionPage(request, user = null) {
                         alert(t.apiTestFailed + (data.error || t.unknownError));
                 }
             } catch (error) {
+                    function getCookie(name) {
+                        const value = '; ' + document.cookie;
+                        const parts = value.split('; ' + name + '=');
+                        if (parts.length === 2) return parts.pop().split(';').shift();
+                        return null;
+                    }
+                    
                     const browserLang = navigator.language || navigator.userLanguage || '';
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const urlLang = urlParams.get('lang');
+                    const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                     let isFarsi = false;
                     
-                    if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
                         isFarsi = true;
                     } else {
-                        const savedLang = localStorage.getItem('preferredLanguage');
-                        if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                            isFarsi = true;
-                        } else {
-                            isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                        }
+                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                     }
                     
                     const translations = {
@@ -2876,20 +2983,21 @@ async function handleSubscriptionPage(request, user = null) {
             try {
                 const response = await fetch(apiUrl);
                 
+                    function getCookie(name) {
+                        const value = '; ' + document.cookie;
+                        const parts = value.split('; ' + name + '=');
+                        if (parts.length === 2) return parts.pop().split(';').shift();
+                        return null;
+                    }
+                    
                     const browserLang = navigator.language || navigator.userLanguage || '';
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const urlLang = urlParams.get('lang');
+                    const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                     let isFarsi = false;
                     
-                    if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
                         isFarsi = true;
                     } else {
-                        const savedLang = localStorage.getItem('preferredLanguage');
-                        if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                            isFarsi = true;
-                        } else {
-                            isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                        }
+                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                     }
                     
                     const translations = {
@@ -2948,20 +3056,21 @@ async function handleSubscriptionPage(request, user = null) {
                     document.getElementById('currentConfig').textContent = t.kvCheckFailedStatus + response.status;
                 }
             } catch (error) {
+                function getCookie(name) {
+                    const value = '; ' + document.cookie;
+                    const parts = value.split('; ' + name + '=');
+                    if (parts.length === 2) return parts.pop().split(';').shift();
+                    return null;
+                }
+                
                 const browserLang = navigator.language || navigator.userLanguage || '';
-                const urlParams = new URLSearchParams(window.location.search);
-                const urlLang = urlParams.get('lang');
+                const savedLang = localStorage.getItem('preferredLanguage') || getCookie('preferredLanguage');
                 let isFarsi = false;
                 
-                if (urlLang === 'fa' || urlLang === 'fa-IR') {
+                if (savedLang === 'fa' || savedLang === 'fa-IR') {
                     isFarsi = true;
                 } else {
-                    const savedLang = localStorage.getItem('preferredLanguage');
-                    if (savedLang === 'fa' || savedLang === 'fa-IR') {
-                        isFarsi = true;
-                    } else {
-                        isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
-                    }
+                    isFarsi = browserLang.includes('fa') || browserLang.includes('fa-IR');
                 }
                 
                 const translations = {
@@ -3034,6 +3143,7 @@ async function handleSubscriptionPage(request, user = null) {
                 document.getElementById('preferredIPs').value = config.yx || '';
                 document.getElementById('preferredIPsURL').value = config.yxURL || '';
                 document.getElementById('socksConfig').value = config.s || '';
+                document.getElementById('customHomepage').value = config.homepage || '';
                 document.getElementById('apiEnabled').value = config.ae || '';
                 document.getElementById('regionMatching').value = config.rm || '';
                 document.getElementById('downgradeControl').value = config.qj || '';
@@ -3181,7 +3291,8 @@ async function handleSubscriptionPage(request, user = null) {
                             rm: '',
                             qj: '',
                             dkby: '',
-                            yxby: '', ev: '', et: '', ex: '', tp: '', scu: '', epd: '', epi: '', egi: ''
+                            yxby: '', ev: '', et: '', ex: '', tp: '', scu: '', epd: '', epi: '', egi: '',
+                            homepage: ''
                         })
                     });
                     
@@ -3276,7 +3387,8 @@ async function handleSubscriptionPage(request, user = null) {
                         p: document.getElementById('customIP').value,
                         yx: document.getElementById('preferredIPs').value,
                         yxURL: document.getElementById('preferredIPsURL').value,
-                        s: document.getElementById('socksConfig').value
+                        s: document.getElementById('socksConfig').value,
+                        homepage: document.getElementById('customHomepage').value
                     };
                     
                     // 确保至少选择一个协议
