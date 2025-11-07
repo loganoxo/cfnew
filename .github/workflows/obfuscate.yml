@@ -6,6 +6,7 @@ on:
       - logan
     paths:
         - '明文源吗'
+        - '.github/workflows/obfuscate.yml'
   workflow_dispatch:
 #  schedule:
 #    - cron: '0 * * * *'
