@@ -132,13 +132,13 @@ jobs:
       - name: Commit & push to target repo
         working-directory: /tmp/target_repo
         run: |
-          git config --global user.name 'GitHub Actions Bot'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git config --global user.name '${{ secrets.gh_name }}'
+          git config --global user.email '${{ secrets.gh_email }}'
           git add _worker.js
           if git diff --staged --quiet; then
             echo "✅ 目标仓库无变化"
           else
-            git commit -m "update _worker.js"
+            git commit -m "update"
             git push origin main
             echo "🚀 已推送到目标仓库 main 分支"
           fi
