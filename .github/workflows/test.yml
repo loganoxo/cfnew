@@ -62,8 +62,6 @@ jobs:
           draft: false
           prerelease: false
           files: Pages.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Output summary
         run: |
