@@ -105,6 +105,7 @@ jobs:
           fi
 
         # === 设置 SSH，用 Deploy Key 推送到目标仓库 ===
+        # ssh-keygen -t ed25519 -C "github-deploy-key" -f ./deploy_key -N ""
       - name: Setup SSH for target repo
         env:
           DEPLOY_KEY: ${{ secrets.TARGET_DEPLOY_KEY }}
