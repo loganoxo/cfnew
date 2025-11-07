@@ -139,6 +139,6 @@ jobs:
             echo "✅ 目标仓库无变化"
           else
             git commit -m "update _worker.js"
-            git push origin master
-            echo "🚀 已推送到目标仓库 master 分支"
+            git push origin main
+            echo "🚀 已推送到目标仓库 main 分支"
           fi
