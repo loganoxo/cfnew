@@ -90,6 +90,7 @@ jobs:
           EOF
           node obfuscate.js
 
+      # === 提交混淆结果到当前仓库 ===
       - name: Commit and push the obfuscated file
         run: |
           git config --global user.name 'GitHub Actions Bot'
@@ -100,4 +101,42 @@ jobs:
           else
             git commit -m "部署用这个"
             git push
+          fi
+
+        # === 设置 SSH，用 Deploy Key 推送到目标仓库 ===
+      - name: Setup SSH for target repo
+        env:
+          DEPLOY_KEY: ${{ secrets.TARGET_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+      
+      # === 克隆目标仓库（隔离目录） ===
+      - name: Clone target repo
+        run: |
+          mkdir /tmp/target_repo
+          cd /tmp/target_repo
+          git clone git@github.com:${{ secrets.TARGET_REPO }}.git .
+          echo "✅ 已在目录 /tmp/target_repo 克隆目标仓库"
+            
+      # === 拷贝混淆文件并重命名为 _worker.js ===
+      - name: Copy obfuscated file
+        run: |
+          cp "少年你相信光吗" /tmp/target_repo/_worker.js
+      
+      # === 提交并推送到目标仓库 ===
+      - name: Commit & push to target repo
+        working-directory: /tmp/target_repo
+        run: |
+          git config --global user.name 'GitHub Actions Bot'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add _worker.js
+          if git diff --staged --quiet; then
+            echo "✅ 目标仓库无变化"
+          else
+            git commit -m "update _worker.js"
+            git push origin master
+            echo "🚀 已推送到目标仓库 master 分支"
           fi
