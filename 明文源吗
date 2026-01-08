@@ -2,7 +2,6 @@
 
     let at = '351c9981-04b6-4103-aa4b-864aa9c91469';
     let fallbackAddress = '';
-    let fallbackPort = '443';
     let socks5Config = '';
     let customPreferredIPs = [];
     let customPreferredDomains = [];
@@ -330,17 +329,7 @@
                 
                 const envFallback = getConfigValue('p', env.p || env.P);
                 if (envFallback) {
-                    const fallbackValue = envFallback.toLowerCase();
-                    if (fallbackValue.includes(']:')) {
-                        const lastColonIndex = fallbackValue.lastIndexOf(':');
-                        fallbackPort = fallbackValue.slice(lastColonIndex + 1);
-                        fallbackAddress = fallbackValue.slice(0, lastColonIndex);
-                    } else if (!fallbackValue.includes(']:') && !fallbackValue.includes(']')) {
-                        [fallbackAddress, fallbackPort = '443'] = fallbackValue.split(':');
-                    } else {
-                        fallbackAddress = fallbackValue;
-                        fallbackPort = '443';
-                    }
+                    fallbackAddress = envFallback.trim();
                 }
 
                 socks5Config = getConfigValue('s', env.s || env.S) || socks5Config;
@@ -1238,9 +1227,8 @@
                 
                 const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
                 if (bestBackupIP) {
-                    fallbackAddress = bestBackupIP.domain;
-                    fallbackPort = bestBackupIP.port.toString();
-                    const backupList = [{ ip: fallbackAddress, isp: 'ProxyIP-' + currentWorkerRegion }];
+                    fallbackAddress = bestBackupIP.domain + ':' + bestBackupIP.port;
+                    const backupList = [{ ip: bestBackupIP.domain, isp: 'ProxyIP-' + currentWorkerRegion }];
                     await addNodesFromList(backupList);
                 } else {
                     const nativeList = [{ ip: workerDomain, isp: '原生地址' }];
@@ -1284,10 +1272,9 @@
                     
                     const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
                     if (bestBackupIP) {
-                        fallbackAddress = bestBackupIP.domain;
-                        fallbackPort = bestBackupIP.port.toString();
+                        fallbackAddress = bestBackupIP.domain + ':' + bestBackupIP.port;
                         
-                        const backupList = [{ ip: fallbackAddress, isp: 'ProxyIP-' + currentWorkerRegion }];
+                        const backupList = [{ ip: bestBackupIP.domain, isp: 'ProxyIP-' + currentWorkerRegion }];
                             await addNodesFromList(backupList);
                         }
                     }
@@ -1312,10 +1299,9 @@
                 
                 const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
                 if (bestBackupIP) {
-                    fallbackAddress = bestBackupIP.domain;
-                    fallbackPort = bestBackupIP.port.toString();
+                    fallbackAddress = bestBackupIP.domain + ':' + bestBackupIP.port;
                     
-                    const backupList = [{ ip: fallbackAddress, isp: 'ProxyIP-' + currentWorkerRegion }];
+                    const backupList = [{ ip: bestBackupIP.domain, isp: 'ProxyIP-' + currentWorkerRegion }];
                         await addNodesFromList(backupList);
                     }
                 }
@@ -1690,9 +1676,10 @@
                     return;
                 } catch (socksErr) {
                     let backupHost, backupPort;
-                    if (fallbackAddress && fallbackAddress.trim() && fallbackPort) {
-                        backupHost = fallbackAddress;
-                        backupPort = parseInt(fallbackPort, 10) || portNum;
+                    if (fallbackAddress && fallbackAddress.trim()) {
+                        const parsed = parseAddressAndPort(fallbackAddress);
+                        backupHost = parsed.address;
+                        backupPort = parsed.port || portNum;
                     } else {
                         const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
                         backupHost = bestBackupIP ? bestBackupIP.domain : host;
@@ -1710,9 +1697,10 @@
                 }
             } else {
                 let backupHost, backupPort;
-                if (fallbackAddress && fallbackAddress.trim() && fallbackPort) {
-                    backupHost = fallbackAddress;
-                    backupPort = parseInt(fallbackPort, 10) || portNum;
+                if (fallbackAddress && fallbackAddress.trim()) {
+                    const parsed = parseAddressAndPort(fallbackAddress);
+                    backupHost = parsed.address;
+                    backupPort = parsed.port || portNum;
                 } else {
                     const bestBackupIP = await getBestBackupIP(currentWorkerRegion);
                     backupHost = bestBackupIP ? bestBackupIP.domain : host;
@@ -1995,7 +1983,7 @@
                         KR: '🇰🇷 韩国', DE: '🇩🇪 德国', SE: '🇸🇪 瑞典', NL: '🇳🇱 荷兰',
                         FI: '🇫🇮 芬兰', GB: '🇬🇧 英国'
                     },
-                    terminal: '终端 v2.8',
+                    terminal: '终端 v2.9',
                     githubProject: 'GitHub 项目',
                     autoDetectClient: '自动识别',
                 selectionLogicText: '同地区 → 邻近地区 → 其他地区',
@@ -2126,7 +2114,7 @@
                         KR: '🇰🇷 کره جنوبی', DE: '🇩🇪 آلمان', SE: '🇸🇪 سوئد', NL: '🇳🇱 هلند',
                         FI: '🇫🇮 فنلاند', GB: '🇬🇧 بریتانیا'
                     },
-                    terminal: 'ترمینال v2.8',
+                    terminal: 'ترمینال v2.9',
                     githubProject: 'پروژه GitHub',
                     autoDetectClient: 'تشخیص خودکار',
                 selectionLogicText: 'هم‌منطقه → منطقه مجاور → سایر مناطق',
@@ -2541,8 +2529,24 @@
                                         <button type="button" id="deselectAllResults" style="background: transparent; border: 1px solid #00aa00; padding: 4px 10px; color: #00aa00; font-size: 0.8rem; cursor: pointer;">${t.deselectAll}</button>
                                     </div>
                                 </div>
+                                <div id="cityFilterContainer" style="margin-bottom: 10px; padding: 10px; background: rgba(0, 20, 0, 0.6); border: 1px solid #00aa00; border-radius: 4px; display: none;">
+                                    <div style="margin-bottom: 8px;">
+                                        <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.9rem;">
+                                            <input type="radio" name="cityFilterMode" value="all" checked style="margin-right: 6px; width: 16px; height: 16px; cursor: pointer;">
+                                            <span>${isFarsi ? '全部城市' : '全部城市'}</span>
+                                        </label>
+                                        <label style="display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.9rem; margin-left: 15px;">
+                                            <input type="radio" name="cityFilterMode" value="fastest10" style="margin-right: 6px; width: 16px; height: 16px; cursor: pointer;">
+                                            <span>${isFarsi ? '只选择最快的10个' : '只选择最快的10个'}</span>
+                                        </label>
+                                    </div>
+                                    <div id="cityCheckboxesContainer" style="display: flex; flex-wrap: wrap; gap: 8px; max-height: 80px; overflow-y: auto; padding: 5px;"></div>
+                                </div>
                                 <div id="latencyResultsList" style="background: rgba(0, 0, 0, 0.5); border: 1px solid #004400; border-radius: 4px; padding: 10px;"></div>
-                                <button type="button" id="addSelectedToYx" style="margin-top: 10px; background: rgba(0, 200, 0, 0.3); border: 1px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; width: 100%; transition: all 0.3s;">✓ ${t.addSelectedToYx}</button>
+                                <div style="margin-top: 10px; display: flex; gap: 10px;">
+                                    <button type="button" id="overwriteSelectedToYx" style="flex: 1; background: rgba(0, 200, 0, 0.3); border: 1px solid #00ff00; padding: 10px 20px; color: #00ff00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; transition: all 0.3s;">${isFarsi ? '覆盖添加' : '覆盖添加'}</button>
+                                    <button type="button" id="appendSelectedToYx" style="flex: 1; background: rgba(0, 150, 0, 0.3); border: 1px solid #00aa00; padding: 10px 20px; color: #00aa00; font-family: 'Courier New', monospace; font-weight: bold; cursor: pointer; transition: all 0.3s;">${isFarsi ? '追加添加' : '追加添加'}</button>
+                                </div>
                             </div>
                         </div>
                         
@@ -3666,7 +3670,8 @@
                 const testStatus = document.getElementById('latencyTestStatus');
                 const testResultsDiv = document.getElementById('latencyTestResults');
                 const resultsList = document.getElementById('latencyResultsList');
-                const addSelectedBtn = document.getElementById('addSelectedToYx');
+                const overwriteSelectedBtn = document.getElementById('overwriteSelectedToYx');
+                const appendSelectedBtn = document.getElementById('appendSelectedToYx');
                 const selectAllBtn = document.getElementById('selectAllResults');
                 const deselectAllBtn = document.getElementById('deselectAllResults');
                 const ipSourceSelect = document.getElementById('ipSourceSelect');
@@ -3708,6 +3713,10 @@
                     randomIPCount.addEventListener('input', function() {
                         localStorage.setItem('randomIPCount', this.value);
                     });
+                    // 初始化时，如果默认是隐藏的，则禁用输入框
+                    if (randomCountDiv && randomCountDiv.style.display === 'none') {
+                        randomIPCount.disabled = true;
+                    }
                 }
                 const testThreadsInput = document.getElementById('testThreads');
                 if (testThreadsInput) {
@@ -3719,12 +3728,17 @@
                 }
                 if (ipSourceSelect) {
                     const savedSource = localStorage.getItem('ipSourceSelect');
+                    const currentSource = savedSource || ipSourceSelect.value || 'manual';
                     if (savedSource) {
                         ipSourceSelect.value = savedSource;
-                        manualInputDiv.style.display = savedSource === 'manual' ? 'block' : 'none';
-                        urlFetchDiv.style.display = savedSource === 'urlFetch' ? 'block' : 'none';
-                        cfRandomDiv.style.display = savedSource === 'cfRandom' ? 'block' : 'none';
-                        randomCountDiv.style.display = savedSource === 'cfRandom' ? 'block' : 'none';
+                    }
+                    manualInputDiv.style.display = currentSource === 'manual' ? 'block' : 'none';
+                    urlFetchDiv.style.display = currentSource === 'urlFetch' ? 'block' : 'none';
+                    cfRandomDiv.style.display = currentSource === 'cfRandom' ? 'block' : 'none';
+                    randomCountDiv.style.display = currentSource === 'cfRandom' ? 'block' : 'none';
+                    // 当隐藏时禁用输入框，避免表单验证错误
+                    if (randomIPCount) {
+                        randomIPCount.disabled = currentSource !== 'cfRandom';
                     }
                 }
                 
@@ -3765,6 +3779,10 @@
                         urlFetchDiv.style.display = value === 'urlFetch' ? 'block' : 'none';
                         cfRandomDiv.style.display = value === 'cfRandom' ? 'block' : 'none';
                         randomCountDiv.style.display = value === 'cfRandom' ? 'block' : 'none';
+                        // 当隐藏时禁用输入框，避免表单验证错误
+                        if (randomIPCount) {
+                            randomIPCount.disabled = value !== 'cfRandom';
+                        }
                     });
                 }
                 
@@ -3855,6 +3873,9 @@
                         testResultsDiv.style.display = 'block';
                         resultsList.innerHTML = '';
                         testResults = [];
+                        if (cityFilterContainer) {
+                            cityFilterContainer.style.display = 'none';
+                        }
                         
                         testAbortController = new AbortController();
                         
@@ -3887,14 +3908,19 @@
                             return { host, port, nodeName };
                         }
                         
-                        function renderResult(result, index) {
+                        function renderResult(result, index, shouldShow = true) {
                             // 只展示在线优选成功的结果，失败/超时的不再显示
                             if (!result.success) {
-                                return;
+                                return null;
                             }
                             
                             const resultItem = document.createElement('div');
                             resultItem.style.cssText = 'display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #003300; gap: 10px;';
+                            resultItem.dataset.index = index;
+                            resultItem.dataset.colo = result.colo || '';
+                            if (!shouldShow) {
+                                resultItem.style.display = 'none';
+                            }
                             
                             const checkbox = document.createElement('input');
                             checkbox.type = 'checkbox';
@@ -3913,6 +3939,7 @@
                             resultItem.appendChild(checkbox);
                             resultItem.appendChild(info);
                             resultsList.appendChild(resultItem);
+                            return resultItem;
                         }
                         
                         async function testOne(target) {
@@ -3946,6 +3973,9 @@
                         testStatus.textContent = '${isFarsi ? 'تست کامل شد' : '测试完成'}: ' + completed + '/' + total;
                         startTestBtn.style.display = 'inline-block';
                         stopTestBtn.style.display = 'none';
+                        
+                        // 更新城市选择器
+                        updateCityFilter();
                     });
                 }
                 
@@ -3974,48 +4004,92 @@
                     });
                 }
                 
-                if (addSelectedBtn) {
-                    addSelectedBtn.addEventListener('click', async function() {
-                        const checkboxes = resultsList.querySelectorAll('input[type="checkbox"]:checked');
-                        if (checkboxes.length === 0) {
-                            showStatus('${isFarsi ? 'لطفا حداقل یک مورد انتخاب کنید' : '请至少选择一项'}', 'error');
-                            return;
+                // 获取选中项的通用函数
+                function getSelectedItems() {
+                    const checkboxes = resultsList.querySelectorAll('input[type="checkbox"]:checked');
+                    if (checkboxes.length === 0) {
+                        showStatus('${isFarsi ? 'لطفا حداقل یک مورد انتخاب کنید' : '请至少选择一项'}', 'error');
+                        return null;
+                    }
+                    
+                    const selectedItems = [];
+                    checkboxes.forEach(cb => {
+                        const idx = parseInt(cb.dataset.index);
+                        const result = testResults[idx];
+                        if (result && result.success) {
+                            const coloName = result.colo ? getColoName(result.colo) : result.nodeName;
+                            const itemStr = result.host + ':' + result.port + '#' + coloName;
+                            selectedItems.push(itemStr);
                         }
+                    });
+                    
+                    return selectedItems;
+                }
+                
+                // 覆盖添加
+                if (overwriteSelectedBtn) {
+                    overwriteSelectedBtn.addEventListener('click', async function() {
+                        const selectedItems = getSelectedItems();
+                        if (!selectedItems || selectedItems.length === 0) return;
                         
-                        const selectedItems = [];
-                        checkboxes.forEach(cb => {
-                            const idx = parseInt(cb.dataset.index);
-                            const result = testResults[idx];
-                            if (result && result.success) {
-                                const coloName = result.colo ? getColoName(result.colo) : result.nodeName;
-                                const itemStr = result.host + ':' + result.port + '#' + coloName;
-                                selectedItems.push(itemStr);
-                            }
-                        });
+                        const yxInput = document.getElementById('yx');
+                        const newValue = selectedItems.join(',');
+                        yxInput.value = newValue;
                         
-                        if (selectedItems.length > 0) {
-                            const yxInput = document.getElementById('yx');
-                            const newValue = selectedItems.join(',');
-                            yxInput.value = newValue;
-                            
-                            addSelectedBtn.disabled = true;
-                            addSelectedBtn.textContent = '${isFarsi ? 'در حال ذخیره...' : '保存中...'}';
-                            
-                            try {
-                                const configData = {
-                                    customIP: document.getElementById('customIP').value,
-                                    yx: newValue,
-                                    yxURL: document.getElementById('yxURL').value,
-                                    socksConfig: document.getElementById('socksConfig').value
-                                };
-                                await saveConfig(configData);
-                                showStatus('${isFarsi ? 'موفقیت‌آمیز بود' : '已替换'} ' + selectedItems.length + ' ${isFarsi ? 'مورد و ذخیره شد' : '项并已保存'}', 'success');
-                            } catch (err) {
-                                showStatus('${isFarsi ? 'خطا در ذخیره' : '保存失败'}: ' + err.message, 'error');
-                            } finally {
-                                addSelectedBtn.disabled = false;
-                                addSelectedBtn.textContent = '✓ ${isFarsi ? 'افزودن انتخاب‌شده‌ها به لیست ترجیحی' : '添加选中项到优选列表'}';
-                            }
+                        overwriteSelectedBtn.disabled = true;
+                        appendSelectedBtn.disabled = true;
+                        overwriteSelectedBtn.textContent = '${isFarsi ? 'در حال ذخیره...' : '保存中...'}';
+                        
+                        try {
+                            const configData = {
+                                customIP: document.getElementById('customIP').value,
+                                yx: newValue,
+                                yxURL: document.getElementById('yxURL').value,
+                                socksConfig: document.getElementById('socksConfig').value
+                            };
+                            await saveConfig(configData);
+                            showStatus('${isFarsi ? 'موفقیت‌آمیز بود' : '已覆盖'} ' + selectedItems.length + ' ${isFarsi ? 'مورد و ذخیره شد' : '项并已保存'}', 'success');
+                        } catch (err) {
+                            showStatus('${isFarsi ? 'خطا در ذخیره' : '保存失败'}: ' + err.message, 'error');
+                        } finally {
+                            overwriteSelectedBtn.disabled = false;
+                            appendSelectedBtn.disabled = false;
+                            overwriteSelectedBtn.textContent = '${isFarsi ? '覆盖添加' : '覆盖添加'}';
+                        }
+                    });
+                }
+                
+                // 追加添加
+                if (appendSelectedBtn) {
+                    appendSelectedBtn.addEventListener('click', async function() {
+                        const selectedItems = getSelectedItems();
+                        if (!selectedItems || selectedItems.length === 0) return;
+                        
+                        const yxInput = document.getElementById('yx');
+                        const currentValue = yxInput.value.trim();
+                        const newItems = selectedItems.join(',');
+                        const newValue = currentValue ? (currentValue + ',' + newItems) : newItems;
+                        yxInput.value = newValue;
+                        
+                        overwriteSelectedBtn.disabled = true;
+                        appendSelectedBtn.disabled = true;
+                        appendSelectedBtn.textContent = '${isFarsi ? 'در حال ذخیره...' : '保存中...'}';
+                        
+                        try {
+                            const configData = {
+                                customIP: document.getElementById('customIP').value,
+                                yx: newValue,
+                                yxURL: document.getElementById('yxURL').value,
+                                socksConfig: document.getElementById('socksConfig').value
+                            };
+                            await saveConfig(configData);
+                            showStatus('${isFarsi ? 'موفقیت‌آمیز بود' : '已追加'} ' + selectedItems.length + ' ${isFarsi ? 'مورد و ذخیره شد' : '项并已保存'}', 'success');
+                        } catch (err) {
+                            showStatus('${isFarsi ? 'خطا در ذخیره' : '保存失败'}: ' + err.message, 'error');
+                        } finally {
+                            overwriteSelectedBtn.disabled = false;
+                            appendSelectedBtn.disabled = false;
+                            appendSelectedBtn.textContent = '${isFarsi ? '追加添加' : '追加添加'}';
                         }
                     });
                 }
@@ -4091,6 +4165,136 @@
                 
                 function getColoName(colo) {
                     return coloMap[colo] || colo;
+                }
+                
+                // 城市筛选相关函数
+                const cityFilterContainer = document.getElementById('cityFilterContainer');
+                const cityCheckboxesContainer = document.getElementById('cityCheckboxesContainer');
+                
+                function updateCityFilter() {
+                    if (!cityFilterContainer || !cityCheckboxesContainer) return;
+                    
+                    // 从测试结果中提取所有可用的城市
+                    const cityMap = new Map();
+                    testResults.forEach((result, index) => {
+                        if (result.success && result.colo) {
+                            const colo = result.colo;
+                            if (!cityMap.has(colo)) {
+                                cityMap.set(colo, {
+                                    colo: colo,
+                                    name: getColoName(colo),
+                                    count: 0
+                                });
+                            }
+                            cityMap.get(colo).count++;
+                        }
+                    });
+                    
+                    if (cityMap.size === 0) {
+                        cityFilterContainer.style.display = 'none';
+                        return;
+                    }
+                    
+                    cityFilterContainer.style.display = 'block';
+                    cityCheckboxesContainer.innerHTML = '';
+                    
+                    // 按城市名称排序
+                    const cities = Array.from(cityMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+                    
+                    cities.forEach(city => {
+                        const label = document.createElement('label');
+                        label.style.cssText = 'display: inline-flex; align-items: center; cursor: pointer; color: #00ff00; font-size: 0.85rem; padding: 4px 8px; background: rgba(0, 40, 0, 0.4); border: 1px solid #00aa00; border-radius: 4px;';
+                        
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = city.colo;
+                        checkbox.checked = true;
+                        checkbox.dataset.colo = city.colo;
+                        checkbox.style.cssText = 'margin-right: 6px; width: 16px; height: 16px; cursor: pointer;';
+                        
+                        const span = document.createElement('span');
+                        span.textContent = city.name + ' (' + city.count + ')';
+                        
+                        label.appendChild(checkbox);
+                        label.appendChild(span);
+                        cityCheckboxesContainer.appendChild(label);
+                        
+                        checkbox.addEventListener('change', filterResultsByCity);
+                    });
+                    
+                    // 监听筛选模式变化
+                    const filterModeRadios = document.querySelectorAll('input[name="cityFilterMode"]');
+                    filterModeRadios.forEach(radio => {
+                        radio.addEventListener('change', function() {
+                            if (this.value === 'all') {
+                                // 切换到"全部城市"模式时，自动选中所有城市复选框
+                                const cityCheckboxes = cityCheckboxesContainer.querySelectorAll('input[type="checkbox"]');
+                                cityCheckboxes.forEach(cb => {
+                                    cb.checked = true;
+                                    cb.disabled = false;
+                                });
+                            }
+                            filterResultsByCity();
+                        });
+                    });
+                }
+                
+                function filterResultsByCity() {
+                    if (!resultsList || !cityCheckboxesContainer) return;
+                    
+                    const filterMode = document.querySelector('input[name="cityFilterMode"]:checked')?.value || 'all';
+                    const resultItems = resultsList.querySelectorAll('[data-index]');
+                    const cityCheckboxes = cityCheckboxesContainer.querySelectorAll('input[type="checkbox"]');
+                    
+                    if (filterMode === 'fastest10') {
+                        // 只选择最快的10个
+                        const sortedResults = testResults
+                            .map((result, index) => ({ result, index }))
+                            .filter(item => item.result.success)
+                            .sort((a, b) => a.result.latency - b.result.latency)
+                            .slice(0, 10);
+                        
+                        const fastestIndices = new Set(sortedResults.map(item => item.index));
+                        
+                        resultItems.forEach(item => {
+                            const index = parseInt(item.dataset.index);
+                            const checkbox = item.querySelector('input[type="checkbox"]');
+                            if (fastestIndices.has(index)) {
+                                item.style.display = 'flex';
+                                if (checkbox) checkbox.checked = true;
+                            } else {
+                                item.style.display = 'none';
+                                if (checkbox) checkbox.checked = false;
+                            }
+                        });
+                        
+                        // 禁用城市复选框
+                        cityCheckboxes.forEach(cb => cb.disabled = true);
+                    } else {
+                        // 根据选中的城市筛选
+                        const selectedCities = new Set();
+                        cityCheckboxes.forEach(cb => {
+                            if (cb.checked) {
+                                selectedCities.add(cb.value);
+                            }
+                        });
+                        
+                        // 如果所有城市都被选中（或没有选中任何城市），显示所有结果
+                        const allChecked = cityCheckboxes.length > 0 && selectedCities.size === cityCheckboxes.length;
+                        const noneChecked = selectedCities.size === 0;
+                        
+                        resultItems.forEach(item => {
+                            const colo = item.dataset.colo || '';
+                            if (allChecked || noneChecked || selectedCities.has(colo)) {
+                                item.style.display = 'flex';
+                            } else {
+                                item.style.display = 'none';
+                            }
+                        });
+                        
+                        // 启用城市复选框
+                        cityCheckboxes.forEach(cb => cb.disabled = false);
+                    }
                 }
                 
                 async function testLatency(host, port, signal) {
@@ -5333,20 +5537,9 @@
         
         const envFallback = getConfigValue('p', '');
         if (envFallback) {
-            const fallbackValue = envFallback.toLowerCase();
-            if (fallbackValue.includes(']:')) {
-                const lastColonIndex = fallbackValue.lastIndexOf(':');
-                fallbackPort = fallbackValue.slice(lastColonIndex + 1);
-                fallbackAddress = fallbackValue.slice(0, lastColonIndex);
-            } else if (!fallbackValue.includes(']:') && !fallbackValue.includes(']')) {
-                [fallbackAddress, fallbackPort = '443'] = fallbackValue.split(':');
-            } else {
-                fallbackAddress = fallbackValue;
-                fallbackPort = '443';
-            }
+            fallbackAddress = envFallback.trim();
         } else {
             fallbackAddress = '';
-            fallbackPort = '443';
         }
         
         socks5Config = getConfigValue('s', '') || '';
